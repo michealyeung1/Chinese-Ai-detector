@@ -1,1 +1,173 @@
-<!DOCTYPE html><html lang="zh-TW"><head>    <meta charset="UTF-8">    <meta name="viewport" content="width=device-width, initial-scale=1.0">    <title>中文學生作業 AI 使用度檢測儀 (免費本地版)</title>    <!-- 引入 Tailwind CSS 確保現代化高顏值介面 -->    <script src="https://cdn.tailwindcss.com"></script></head><body class="bg-slate-50 min-h-screen py-10 px-4">    <div class="max-w-3xl mx-auto space-y-6">        <!-- 標 題 區 -->        <div class="text-center space-y-2">            <h1 class="text-3xl font-bold text-slate-900">中文學生作業 AI 使用度檢測儀</h1>            <p class="text-sm text-slate-600">基於瀏覽器 WebGPU 與開源模型的零成本、免伺服器 AI 鑑識工具</p>        </div>        <!-- 系統狀態提示框 (初次載入模型用) -->        <div id="statusBox" class="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-xl text-sm flex items-center justify-between">            <span id="statusText">系統準備中：正在初始化瀏覽器 AI 引擎...</span>            <div id="spinner" class="animate-spin rounded-full h-4 w-4 border-b-2 border-amber-800"></div>        </div>        <!-- 輸 入 區 -->        <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">            <label class="block text-sm font-semibold text-slate-700">請貼上學生的文章內容：</label>            <textarea id="inputText" rows="8" class="w-full border border-slate-300 rounded-xl p-4 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none transition" placeholder="請在此貼上至少 50 字以上的學生文章..."></textarea>                        <div class="flex justify-between items-center">                <span id="charCount" class="text-xs text-slate-500">字數：0 字</span>                <button onclick="runDetection()" id="detectBtn" disabled class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-xl font-medium text-sm transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">                    載入模型中 (請稍候)...                </button>            </div>        </div>        <!-- 結 果 顯 示 區 -->        <div id="resultBox" class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-6 hidden">            <div class="flex items-center justify-between border-b border-slate-100 pb-4">                <h2 class="text-lg font-bold text-slate-800">智能分析鑑定報告</h2>                <span id="riskBadge" class="px-3 py-1 rounded-full text-xs font-bold">-</span>            </div>            <div class="grid grid-cols-2 gap-4">                <div class="bg-slate-50 p-4 rounded-xl text-center border border-slate-100">                    <div id="aiScore" class="text-3xl font-extrabold text-slate-900">0%</div>                    <div class="text-xs text-slate-500 mt-1 font-medium">AI 生成綜合概率</div>                </div>                <div class="bg-slate-50 p-4 rounded-xl text-center border border-slate-100 flex flex-col justify-center">                    <div id="riskLevel" class="text-base font-bold text-slate-800">-</div>                    <div class="text-xs text-slate-500 mt-1 font-medium">風險評級</div>                </div>            </div>            <div class="space-y-2">                <h3 class="text-sm font-semibold text-slate-700">專業中文分析評語：</h3>                <p id="teacherReport" class="text-sm text-slate-600 bg-slate-50 p-4 rounded-xl border border-slate-100 leading-relaxed"></p>            </div>        </div>    </div>    <!-- 邏輯與 WebLLM 引擎腳本 -->    <script type="module">        import * as webllm from "https://esm.run/@mlc-ai/web-llm";        let engine = null;        const statusBox = document.getElementById("statusBox");        const statusText = document.getElementById("statusText");        const spinner = document.getElementById("spinner");        const detectBtn = document.getElementById("detectBtn");        const inputText = document.getElementById("inputText");        // 即時計算字數        inputText.addEventListener("input", (e) => {            document.getElementById("charCount").innerText = `字數：${e.target.value.length} 字`;        });        // 初始化瀏覽器本地 AI 模型        async function initModel() {            try {                // 使用對繁體中文與指令遵循表現極佳的小型開源模型                const selectedModel = "Qwen2.5-1.5B-Instruct-q4f16_1-MLC";                                engine = await webllm.CreateWebWorkerEngine(                    new Worker(                        URL.createObjectURL(new Blob([`                            import { WebWorkerMLCEngineHandler } from "https://esm.run/@mlc-ai/web-llm";                            const handler = new WebWorkerMLCEngineHandler();                            onmessage = (msg) => handler.onmessage(msg);                        `], { type: "text/javascript" }))                    ),                    {                         model: selectedModel,                        initProgressCallback: (report) => {                            statusText.innerText = `系統初始化中：${report.text}`;                        }                    }                );                // 載入完成                statusBox.className = "bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-xl text-sm flex items-center justify-between";                statusText.innerText = "瀏覽器 AI 引擎載入完成！所有數據均在本地處理，完全免費且保護隱私。";                spinner.style.display = "none";                detectBtn.disabled = false;                detectBtn.innerText = "開始 AI 檢測";            } catch (err) {                statusBox.className = "bg-red-50 border border-red-200 text-red-800 p-4 rounded-xl text-sm";                statusText.innerText = "初始化失敗：您的瀏覽器或設備可能不支援 WebGPU（建議使用最新版 Chrome 或 Edge）。錯誤：" + err.message;                spinner.style.display = "none";            }        }        // 頁面加載後自動在背景執行初始化        initModel();        // 執行檢測核心邏輯        window.runDetection = async function() {            const text = inputText.value.trim();            if (text.length < 50) {                alert("文章字數過少，至少需要 50 字以上才能進行有效分析。");                return;            }            detectBtn.disabled = true;            detectBtn.innerText = "深度分析中...";            document.getElementById("resultBox").classList.add("hidden");            const prompt = `            你是一位專精於繁體中文（台灣與香港教育語境）的 AI 文本鑑識專家。            請分析以下學生提交的文章，判斷其由大型語言模型（如 ChatGPT、Claude）生成的機率。                        必須嚴格以純 JSON 格式回傳（不可包在 Markdown 程式碼區塊中，直接輸出 JSON 字串），格式如下：            {              "ai_probability": 數字(0到100的整數),              "risk_level": "高風險" 或 "中度風險" 或 "低風險",              "reasoning": "100字以內的繁體中文分析原因，說明為什麼有這樣的判定"            }            學生文章內容：            ${text}            `;            try {                const reply = await engine.chat.completions.create({                    messages: [{ role: "user", content: prompt }],                    temperature: 0.1,                });                let responseText = reply.choices[0].message.content.trim();                                // 清理可能被模型誤加的 markdown 標記                responseText = responseText.replace(/```json/g, "").replace(/```/g, "").trim();                                const resultData = JSON.parse(responseText);                // 渲染結果數據                document.getElementById("aiScore").innerText = resultData.ai_probability + "%";                document.getElementById("riskLevel").innerText = resultData.risk_level;                document.getElementById("teacherReport").innerText = resultData.reasoning;                const badge = document.getElementById("riskBadge");                if (resultData.ai_probability >= 70) {                    badge.className = "px-3 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700";                    badge.innerText = "高度疑似 AI 生成";                } else if (resultData.ai_probability >= 40) {                    badge.className = "px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700";                    badge.innerText = "疑似 AI 潤飾";                } else {                    badge.className = "px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700";                    badge.innerText = "人類寫作特徵明顯";                }                document.getElementById("resultBox").classList.remove("hidden");            } catch (err) {                alert("解析發生錯誤，請稍後重試或檢查文章內容。");                console.error(err);            } finally {                detectBtn.disabled = false;                detectBtn.innerText = "開始 AI 檢測";            }        }    </script></body></html>
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>中文學生作業 AI 使用度檢測儀 (免費本地版)</title>
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 min-h-screen py-10 px-4">
+    <div class="max-w-3xl mx-auto space-y-6">
+        
+        <!-- 標 題 區 -->
+        <div class="text-center space-y-2">
+            <h1 class="text-3xl font-bold text-slate-900">中文學生作業 AI 使用度檢測儀</h1>
+            <p class="text-sm text-slate-600">基於瀏覽器 WebGPU 與開源模型的零成本、免伺服器 AI 鑑識工具</p>
+        </div>
+
+        <!-- 系統狀態提示框 -->
+        <div id="statusBox" class="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-xl text-sm flex items-center justify-between">
+            <span id="statusText">系統準備中：正在初始化瀏覽器 AI 引擎...</span>
+            <div id="spinner" class="animate-spin rounded-full h-4 w-4 border-b-2 border-amber-800"></div>
+        </div>
+
+        <!-- 輸 入 區 -->
+        <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+            <label class="block text-sm font-semibold text-slate-700">請貼上學生的文章內容：</label>
+            <textarea id="inputText" rows="8" class="w-full border border-slate-300 rounded-xl p-4 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none transition" placeholder="請在此貼上至少 50 字以上的學生文章..."></textarea>
+            
+            <div class="flex justify-between items-center">
+                <span id="charCount" class="text-xs text-slate-500">字數：0 字</span>
+                <button onclick="runDetection()" id="detectBtn" disabled class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-xl font-medium text-sm transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">
+                    載入模型中 (請稍候)...
+                </button>
+            </div>
+        </div>
+
+        <!-- 結 果 顯 示 區 -->
+        <div id="resultBox" class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-6 hidden">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                <h2 class="text-lg font-bold text-slate-800">智能分析鑑定報告</h2>
+                <span id="riskBadge" class="px-3 py-1 rounded-full text-xs font-bold">-</span>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div class="bg-slate-50 p-4 rounded-xl text-center border border-slate-100">
+                    <div id="aiScore" class="text-3xl font-extrabold text-slate-900">0%</div>
+                    <div class="text-xs text-slate-500 mt-1 font-medium">AI 生成綜合概率</div>
+                </div>
+                <div class="bg-slate-50 p-4 rounded-xl text-center border border-slate-100 flex flex-col justify-center">
+                    <div id="riskLevel" class="text-base font-bold text-slate-800">-</div>
+                    <div class="text-xs text-slate-500 mt-1 font-medium">風險評級</div>
+                </div>
+            </div>
+
+            <div class="space-y-2">
+                <h3 class="text-sm font-semibold text-slate-700">專業中文分析評語：</h3>
+                <p id="teacherReport" class="text-sm text-slate-600 bg-slate-50 p-4 rounded-xl border border-slate-100 leading-relaxed"></p>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- 邏輯與 WebLLM 引擎腳本 -->
+    <script type="module">
+        import * as webllm from "https://esm.run/@mlc-ai/web-llm";
+
+        let engine = null;
+        const statusBox = document.getElementById("statusBox");
+        const statusText = document.getElementById("statusText");
+        const spinner = document.getElementById("spinner");
+        const detectBtn = document.getElementById("detectBtn");
+        const inputText = document.getElementById("inputText");
+
+        inputText.addEventListener("input", (e) => {
+            document.getElementById("charCount").innerText = `字數：${e.target.value.length} 字`;
+        });
+
+        async function initModel() {
+            try {
+                // 使用最新穩定版的 WebLLM 建立方式
+                const selectedModel = "Qwen2.5-1.5B-Instruct-q4f16_1-MLC";
+                
+                engine = await webllm.CreateMLCEngine(
+                    selectedModel,
+                    { 
+                        initProgressCallback: (report) => {
+                            statusText.innerText = `系統初始化中：${report.text}`;
+                        }
+                    }
+                );
+
+                statusBox.className = "bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-xl text-sm flex items-center justify-between";
+                statusText.innerText = "瀏覽器 AI 引擎載入完成！所有數據均在本地處理，完全免費且保護隱私。";
+                spinner.style.display = "none";
+                detectBtn.disabled = false;
+                detectBtn.innerText = "開始 AI 檢測";
+
+            } catch (err) {
+                statusBox.className = "bg-red-50 border border-red-200 text-red-800 p-4 rounded-xl text-sm";
+                statusText.innerText = "初始化失敗：您的瀏覽器或設備可能不支援 WebGPU（建議使用電腦版 Chrome 或 Edge）。錯誤：" + err.message;
+                spinner.style.display = "none";
+            }
+        }
+
+        initModel();
+
+        window.runDetection = async function() {
+            const text = inputText.value.trim();
+            if (text.length < 50) {
+                alert("文章字數過少，至少需要 50 字以上才能進行有效分析。");
+                return;
+            }
+
+            detectBtn.disabled = true;
+            detectBtn.innerText = "深度分析中...";
+            document.getElementById("resultBox").classList.add("hidden");
+
+            const prompt = `
+            你是一位專精於繁體中文（台灣與香港教育語境）的 AI 文本鑑識專家。
+            請分析以下學生提交的文章，判斷其由大型語言模型（如 ChatGPT、Claude）生成的機率。
+            
+            必須嚴格以純 JSON 格式回傳（不可包在 Markdown 程式碼區塊中，直接輸出 JSON 字串），格式如下：
+            {
+              "ai_probability": 數字(0到100的整數),
+              "risk_level": "高風險" 或 "中度風險" 或 "低風險",
+              "reasoning": "100字以內的繁體中文分析原因，說明為什麼有這樣的判定"
+            }
+
+            學生文章內容：
+            ${text}
+            `;
+
+            try {
+                const reply = await engine.chat.completions.create({
+                    messages: [{ role: "user", content: prompt }],
+                    temperature: 0.1,
+                });
+
+                let responseText = reply.choices[0].message.content.trim();
+                responseText = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
+                
+                const resultData = JSON.parse(responseText);
+
+                document.getElementById("aiScore").innerText = resultData.ai_probability + "%";
+                document.getElementById("riskLevel").innerText = resultData.risk_level;
+                document.getElementById("teacherReport").innerText = resultData.reasoning;
+
+                const badge = document.getElementById("riskBadge");
+                if (resultData.ai_probability >= 70) {
+                    badge.className = "px-3 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700";
+                    badge.innerText = "高度疑似 AI 生成";
+                } else if (resultData.ai_probability >= 40) {
+                    badge.className = "px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700";
+                    badge.innerText = "疑似 AI 潤飾";
+                } else {
+                    badge.className = "px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700";
+                    badge.innerText = "人類寫作特徵明顯";
+                }
+
+                document.getElementById("resultBox").classList.remove("hidden");
+
+            } catch (err) {
+                alert("解析發生錯誤，請稍後重試或檢查文章內容。");
+                console.error(err);
+            } finally {
+                detectBtn.disabled = false;
+                detectBtn.innerText = "開始 AI 檢測";
+            }
+        }
+    </script>
+</body>
+</html>
